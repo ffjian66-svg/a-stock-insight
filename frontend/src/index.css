@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 43% 5%;
+    --surface: 220 35% 8%;
+    --elevated: 218 29% 12%;
+    --border: 216 24% 18%;
+    --foreground: 210 33% 96%;
+    --muted: 215 15% 59%;
+    --primary: 185 92% 48%;
+    --positive: 1 80% 61%;
+    --negative: 153 64% 46%;
+    --warning: 39 94% 59%;
+    --radius-panel: 1rem;
+    --gradient-hero: linear-gradient(125deg, hsl(222 43% 5% / .2), hsl(222 43% 5% / .9) 72%);
+    --gradient-page: radial-gradient(circle at 70% -10%, hsl(var(--primary) / .08), transparent 30%);
+    --gradient-sheen: linear-gradient(135deg, hsl(var(--primary) / .12), transparent 48%);
+    --shadow-panel: 0 16px 50px hsl(222 70% 2% / .42);
+    --shadow-glow: 0 0 36px hsl(var(--primary) / .12);
+  }
+  * { @apply border-border; }
+  body { @apply m-0 min-w-[320px] bg-background text-foreground antialiased; }
+  button, input, select { font: inherit; }
+}
+
+@layer components {
+  .panel { @apply rounded-panel border border-border bg-surface/90 shadow-panel backdrop-blur-xl; }
+  .panel-hover { @apply transition duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-glow; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[.18em] text-primary; }
+  .metric { @apply font-mono tabular-nums tracking-tight; }
+  .positive { @apply text-positive; }
+  .negative { @apply text-negative; }
+  .muted { @apply text-muted; }
+  .chip { @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium; }
+  .field { @apply h-10 rounded-xl border border-border bg-elevated px-3 text-sm outline-none transition focus:border-primary/60; }
+  .button-primary { @apply inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-background transition hover:brightness-110 active:scale-[.98] disabled:opacity-50; }
+  .button-ghost { @apply inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-elevated px-4 text-sm text-foreground transition hover:border-primary/40 hover:bg-primary/10 active:scale-[.98]; }
+  .nav-link { @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-foreground; }
+  .nav-link-active { @apply bg-primary/10 text-primary ring-1 ring-primary/20; }
+}
+
+::selection { background: hsl(var(--primary) / .25); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 999px; }

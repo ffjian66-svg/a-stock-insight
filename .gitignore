@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Secrets and local data
+.env
+*.db
+*.db-shm
+*.db-wal
+data/
+logs/
+
+# Frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.DS_Store
+
+# Duplicate design reference (original lives in frontend/public/images)
+vibe_images/
