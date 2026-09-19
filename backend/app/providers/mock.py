@@ -105,6 +105,21 @@ class MockProvider(MarketDataProvider):
                 rows.append(self._bar(code, current, len(rows)))
         return list(reversed(rows))
 
+    def stock_history(self, code: str, start: date, end: date) -> list[BarData]:
+        days: list[date] = []
+        current = start
+        while current <= end:
+            if current.weekday() < 5:
+                days.append(current)
+            current += timedelta(days=1)
+        total = len(days)
+        # `_bar` 的 offset 只在 0..90 区间有意义（trend 项按它线性衰减）；
+        # 两年 ~480 根直接透传会让演示价格被压低三成，故归一化回该区间。
+        return [
+            self._bar(code, trade_date, round((total - 1 - position) * 90 / max(total, 1)))
+            for position, trade_date in enumerate(days)
+        ]
+
     def _bar(self, code: str, trade_date: date, offset: int) -> BarData:
         base = BASE.get(code, 50.0)
         wave = math.sin((trade_date.toordinal() - offset) / 5) * 0.022

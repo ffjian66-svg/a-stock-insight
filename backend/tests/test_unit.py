@@ -145,21 +145,16 @@ def test_snapshot_metrics_empty() -> None:
 
 
 def test_score_with_sentiment_only_lacks_total() -> None:
-    result = score_stock({}, {}, 0.5)
+    result = score_stock([], {}, 0.5)
     assert result.total is None
     assert result.coverage == 0.2
     assert result.risk_level == "高"
 
 
 def test_score_clamps_and_labelled_explanations() -> None:
-    indicators = {
-        "ma5": 110.0,
-        "ma20": 100.0,
-        "rsi": 40.0,
-        "volatility": 2.0,
-    }
-    fundamentals = {"pe_ttm": 20.0, "roe": 16.0, "profit_growth": 12.0}
-    result = score_stock(indicators, fundamentals, 0.5)
+    closes = [100.0 + index * 0.5 for index in range(80)]
+    fundamentals = {"pe_ttm": 20.0, "roe": 16.0, "profit_growth": 12.0, "turnover_rate": 2.0}
+    result = score_stock(closes, fundamentals, 0.5)
     assert result.total is not None
     assert 0 <= result.total <= 100
     factors = {item["factor"] for item in result.explanations}

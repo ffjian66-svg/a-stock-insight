@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Activity, BarChart3, Binoculars, Plus, Search, Settings, Sparkles, X } from 'lucide-react'
+import { Activity, BarChart3, Binoculars, Crosshair, Plus, Search, Settings, Sparkles, Sunrise, TrendingUp, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, ScrollRestoration, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
@@ -8,7 +8,10 @@ import { Change, Toasts } from './Common'
 
 const nav = [
   { to: '/', label: '市场总览', icon: Activity },
+  { to: '/tomorrow', label: '明日操作', icon: Sunrise },
   { to: '/screener', label: '智能选股', icon: Binoculars },
+  { to: '/quant', label: '量化分析', icon: TrendingUp },
+  { to: '/strategy', label: '买卖策略', icon: Crosshair },
   { to: '/stock/600519.SH', label: '个股研判', icon: BarChart3 },
   { to: '/settings', label: '系统设置', icon: Settings },
 ]

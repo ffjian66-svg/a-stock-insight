@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart3, Newspaper } from 'lucide-react'
+import { BarChart3, Crosshair, Newspaper } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Change, EmptyState, ErrorBox, SentimentChip } from './Common'
+import { Change, EmptyState, ErrorBox, PriceNote, SentimentChip } from './Common'
 import { api, type TopBoardRow } from '../lib/api'
 
 const RANGE_OPTIONS = [10, 20, 50]
@@ -138,13 +138,23 @@ export function TopBoard() {
                   <tr key={row.ts_code} className="border-b border-border/70 transition hover:bg-elevated/50">
                     <td className="px-5 py-3 text-xs text-muted">{String(row.rank).padStart(2, '0')}</td>
                     <td className="py-3 pr-4">
-                      <Link
-                        to={`/stock/${row.ts_code}`}
-                        state={{ from: '/' }}
-                        className="font-medium hover:text-primary"
-                      >
-                        {row.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/stock/${row.ts_code}`}
+                          state={{ from: '/' }}
+                          className="font-medium hover:text-primary"
+                        >
+                          {row.name}
+                        </Link>
+                        <Link
+                          aria-label={`${row.name}的买卖策略`}
+                          title="买卖策略"
+                          to={`/strategy?code=${row.ts_code}`}
+                          className="text-muted hover:text-primary"
+                        >
+                          <Crosshair size={15} />
+                        </Link>
+                      </div>
                       <p className="mt-0.5 text-xs text-muted">{row.ts_code} · {row.industry}</p>
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
@@ -152,6 +162,7 @@ export function TopBoard() {
                       <div className="mt-0.5">
                         {row.pct_chg != null ? <Change value={row.pct_chg} /> : <span className="text-xs text-muted">--</span>}
                       </div>
+                      <PriceNote stock={row} />
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap"><Dim label="技" value={row.technical_score} /></td>
                     <td className="py-3 pr-4 whitespace-nowrap"><Dim label="基" value={row.fundamental_score} /></td>

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from datetime import datetime
 from hashlib import sha256
 from typing import Any
@@ -36,10 +37,11 @@ class AkshareNewsSource:
     def _resolve_symbol_kw(self) -> str:
         fn = getattr(self._ak, "stock_news_em", None)
         if fn is not None:
+            params: Mapping[str, inspect.Parameter] = {}
             try:
                 params = inspect.signature(fn).parameters
             except (TypeError, ValueError):
-                params = {}
+                pass
             if "symbol" in params:
                 return "symbol"
             if "stock" in params:

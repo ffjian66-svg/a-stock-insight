@@ -29,6 +29,20 @@ class Settings(BaseSettings):
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
     allowed_hosts: str = "127.0.0.1,localhost"
 
+    # —— 微信推送（企业微信群机器人）——
+    # 这个 URL 是**凭据**：拿到它的人可以往那个群发任意消息。只存服务器 .env，
+    # 永不进版本库、永不回传给前端（`SystemStatus` 只暴露"配没配"这一个布尔）。
+    wecom_webhook_url: SecretStr = SecretStr("")
+    # 显式 kill switch。真正的门是 `notify_enabled and webhook 非空` 两条同时成立。
+    notify_enabled: bool = True
+    # 企业微信 markdown 上限 4096 **字节**，留余量。
+    notify_max_bytes: int = 4000
+    # 假定本金。**不能硬编码**：页面的 equity 来自 URL 参数，它喂 `weight_pct`，而
+    # `weight_pct` 门控 `decision` 的 `add`（加仓）分支——两边取不同本金，同一只票
+    # 同一根收盘，网页会说「加仓」而推送说「继续持有」。所以走配置，并把它印在消息里。
+    notify_equity: float = 1_000_000.0
+    notify_daily_hour: int = 19
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
@@ -38,6 +52,11 @@ class Settings(BaseSettings):
     @property
     def allowed_host_list(self) -> list[str]:
         return [item.strip() for item in self.allowed_hosts.split(",") if item.strip()]
+
+    @property
+    def notify_configured(self) -> bool:
+        """只回"配没配"，**永不回传 URL 本身**。照抄 `tushare_configured` 的做法。"""
+        return bool(self.notify_enabled and self.wecom_webhook_url.get_secret_value())
 
     def ensure_data_dir(self) -> None:
         if self.database_url.startswith("sqlite:///./"):

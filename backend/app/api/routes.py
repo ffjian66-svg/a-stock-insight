@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, or_, select
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     ApiMessage,
+    DailyPicks,
     NewsView,
     QuoteView,
     ScoreExplanation,
@@ -32,6 +34,7 @@ from app.db.models import (
     WatchlistItem,
 )
 from app.db.session import get_db
+from app.services import picks
 from app.services.sync import get_provider, run_sync
 from app.services.timing import compute_timing_for_codes
 
@@ -43,19 +46,47 @@ INDEX_NAMES = {
     "399006.SZ": "创业板指",
 }
 
+# 首页大屏榜单口径：剔除科创板(688/689.SH)与创业板(300/301.SZ)，只呈现沪深主板标的。
+# 用 ts_code 前缀判定、不依赖 Stock.market 文本标签，两种 provider 下都成立。
+_NON_MAIN_BOARD = or_(
+    Stock.ts_code.like("688%.SH"),
+    Stock.ts_code.like("689%.SH"),
+    Stock.ts_code.like("300%.SZ"),
+    Stock.ts_code.like("301%.SZ"),
+)
 
 def stock_view(
-    row: tuple[Stock, LatestQuote | None, ScoreSnapshot | None, FundamentalSnapshot | None],
+    row: tuple[
+        Stock, LatestQuote | None, ScoreSnapshot | None, FundamentalSnapshot | None, DailyBar | None
+    ],
 ) -> StockView:
-    stock, quote, score, fundamental = row
+    """把一行 `services.picks.stock_query` 结果映射成对外视图。
+
+    `bar` 是**全局最近交易日**的那根日线，只为一件事存在：`latest_quotes` 为空时兜底价格。
+    实测盘后新浪不返数据、`latest_quotes` 会掉到 0 行，于是每个列表的价格列整片 `--`，
+    而最近收盘价其实一直躺在 daily_bars 里（2026-09-16 实测覆盖 5550/5564 只）。
+    兜底时把来源标成 `close` 并带上日期，让页面能写「收盘 09-16」而不是让人以为这是实时价。
+    `is_stale` 保持 True——没有实时报价这件事依然是事实，只是不再等于「没有价格」。
+    """
+    stock, quote, score, fundamental, bar = row
+    if quote is not None:
+        price, pct_chg, price_source = quote.price, quote.pct_chg, "quote"
+    elif bar is not None:
+        price, pct_chg, price_source = bar.close, bar.pct_chg, "close"
+    else:
+        price, pct_chg, price_source = None, None, "none"
     return StockView(
         ts_code=stock.ts_code,
         symbol=stock.symbol,
         name=stock.name,
         industry=stock.industry,
         market=stock.market,
-        price=quote.price if quote else None,
-        pct_chg=quote.pct_chg if quote else None,
+        price=price,
+        pct_chg=pct_chg,
+        price_source=price_source,
+        # 只在价格真的来自那根收盘 bar 时才给日期。有实时报价时 bar 也在 join 里，
+        # 顺手把它的日期带出去会让人以为这个价是收盘价——所以这里必须跟着 price_source 走。
+        price_date=bar.trade_date.isoformat() if price_source == "close" and bar else None,
         is_stale=quote.is_stale if quote else True,
         quote_time=quote.quote_time if quote else None,
         total_score=score.total_score if score else None,
@@ -67,27 +98,6 @@ def stock_view(
         explanations=score.explanations if score else [],
         pe_ttm=fundamental.pe_ttm if fundamental else None,
         pb=fundamental.pb if fundamental else None,
-    )
-
-
-def stock_query():
-    latest_fundamental = (
-        select(
-            FundamentalSnapshot.ts_code, func.max(FundamentalSnapshot.trade_date).label("max_date")
-        )
-        .group_by(FundamentalSnapshot.ts_code)
-        .subquery()
-    )
-    return (
-        select(Stock, LatestQuote, ScoreSnapshot, FundamentalSnapshot)
-        .outerjoin(LatestQuote, LatestQuote.ts_code == Stock.ts_code)
-        .outerjoin(ScoreSnapshot, ScoreSnapshot.ts_code == Stock.ts_code)
-        .outerjoin(latest_fundamental, latest_fundamental.c.ts_code == Stock.ts_code)
-        .outerjoin(
-            FundamentalSnapshot,
-            (FundamentalSnapshot.ts_code == Stock.ts_code)
-            & (FundamentalSnapshot.trade_date == latest_fundamental.c.max_date),
-        )
     )
 
 
@@ -140,6 +150,8 @@ def system_status(db: Session = Depends(get_db)) -> SystemStatus:
         provider=provider,
         tushare_configured=token_configured,
         llm_configured=bool(settings.llm_api_key.get_secret_value()),
+        # 只暴露「配没配」：webhook 是凭据，永不回传 URL 本身（同 `tushare_configured`）。
+        notify_configured=settings.notify_configured,
         mock_mode=mock_mode,
         quote_refresh_seconds=settings.quote_refresh_seconds,
         updated_at=datetime.now(),
@@ -196,7 +208,7 @@ def search_stocks(
     limit: int = Query(default=10, le=30),
     db: Session = Depends(get_db),
 ) -> list[StockView]:
-    query = stock_query()
+    query = picks.stock_query()
     if q:
         query = query.where(
             or_(Stock.name.contains(q), Stock.symbol.contains(q), Stock.ts_code.contains(q.upper()))
@@ -206,7 +218,7 @@ def search_stocks(
 
 @router.get("/stocks/{ts_code}", response_model=StockView)
 def stock_detail(ts_code: str, db: Session = Depends(get_db)) -> StockView:
-    row = db.execute(stock_query().where(Stock.ts_code == ts_code.upper())).first()
+    row = db.execute(picks.stock_query().where(Stock.ts_code == ts_code.upper())).first()
     if not row:
         raise HTTPException(404, "未找到该股票")
     return stock_view(row)
@@ -297,7 +309,7 @@ def screener(
     limit: int = Query(default=50, le=100),
     db: Session = Depends(get_db),
 ) -> list[StockView]:
-    query = stock_query().where(ScoreSnapshot.total_score >= min_score)
+    query = picks.stock_query().where(ScoreSnapshot.total_score >= min_score)
     if min_coverage > 0:
         query = query.where(ScoreSnapshot.coverage >= min_coverage)
     if industry:
@@ -337,15 +349,16 @@ def screener_top(
 ) -> list[TopBoardRow]:
     """综合评分 TOP-N 榜单（首页数据大屏数据源）。
 
-    排名以 score_snapshots.total_score 为准（同分按 ts_code 稳定序）；报价/估值
-    沿用 stock_query 既有 outerjoin 口径，榜单不接 timing（避免全量算操作时机）。
-    新闻简报两条聚合口径与 scoring.recalculate_scores 一致，naive 3 天窗口：
-    近 3 天情绪均值不限定 analysis_mode（raw 的 sentiment 恒 None 被天然排除），
-    最新一条仅取 llm/demo。
+    榜单只呈现沪深主板标的，剔除科创板(688/689.SH)与创业板(300/301.SZ)，排名
+    在剩余标的内重新计算。排名以 score_snapshots.total_score 为准（同分按 ts_code
+    稳定序）；报价/估值沿用 `services.picks.stock_query` 既有 outerjoin 口径，榜单不接 timing（避免
+    全量算操作时机）。新闻简报两条聚合口径与 scoring.recalculate_scores 一致，naive
+    3 天窗口：近 3 天情绪均值不限定 analysis_mode（raw 的 sentiment 恒 None 被天然
+    排除），最新一条仅取 llm/demo。
     """
     rows = db.execute(
-        stock_query()
-        .where(ScoreSnapshot.total_score.is_not(None))
+        picks.stock_query()
+        .where(ScoreSnapshot.total_score.is_not(None), ~_NON_MAIN_BOARD)
         .order_by(ScoreSnapshot.total_score.desc(), Stock.ts_code)
         .limit(n)
     ).all()
@@ -400,7 +413,7 @@ def screener_top(
             latest_ranked.c.published_at,
         ).where(latest_ranked.c.rn == 1)
     ).all()
-    latest_by_code: dict[str, object] = {row.ts_code: row for row in latest_rows}
+    latest_by_code: dict[str, Any] = {row.ts_code: row for row in latest_rows}
 
     result: list[TopBoardRow] = []
     for idx, view in enumerate(views, start=1):
@@ -420,10 +433,33 @@ def screener_top(
     return result
 
 
+@router.get("/picks/daily", response_model=DailyPicks)
+def picks_daily(db: Session = Depends(get_db)) -> DailyPicks:
+    """次日买点候选（首页"次日买点候选"数据源）。
+
+    选股口径在 `services/picks.select_daily_picks`，这里只把它落到 `StockView` 上。
+    `/strategy/simple`（明日操作页）与它共用前三步（同一个 SQL 门槛、同一次现算时机），
+    **只差第 3 步**：那边每板块至多 10 只、按市值排序、不封顶，这边低风险优先、单行业 2 只、
+    最多 8 只。所以两页的**候选池相同、名单不必互相包含**。
+
+    纯实时计算、不落库。basis_date 为最近一根日线 trade_date（盘中/盘后均为最近收盘日）。
+    入选主创板不限，低风险门槛与分散口径已兜底。
+    """
+    views = [
+        stock_view(row).model_copy(update={"timing": TimingAdvice(**advice)})
+        for row, advice in picks.select_daily_picks(db)
+    ]
+    return DailyPicks(
+        basis_date=picks.picks_basis_date(db),
+        note=picks.picks_note(),
+        picks=views,
+    )
+
+
 @router.get("/watchlist", response_model=list[StockView])
 def watchlist(db: Session = Depends(get_db)) -> list[StockView]:
     query = (
-        stock_query()
+        picks.stock_query()
         .join(WatchlistItem, WatchlistItem.ts_code == Stock.ts_code)
         .order_by(WatchlistItem.created_at)
     )

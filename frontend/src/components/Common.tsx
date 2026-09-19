@@ -25,6 +25,33 @@ export function Score({ value }: { value: number | null }) {
   )
 }
 
+/**
+ * 价格旁边那句小字：这个价是哪来的。
+ *
+ * `close` 一定要和 `is_stale` 分开说。盘后没有实时报价时后端会回退到最近收盘价，
+ * 那时 `is_stale` 依然是 true（"没有实时报价"仍是事实），但写「报价延迟」会让人
+ * 以为存在一个被延迟的实时价——实际屏上就是收盘价。所以 `close` 优先，并带上日期。
+ */
+export type PriceSourceLike = {
+  price_source?: 'quote' | 'close' | 'none'
+  price_date?: string | null
+  is_stale?: boolean
+}
+
+export function priceSourceNote(stock: PriceSourceLike): string {
+  if (stock.price_source === 'close') {
+    return stock.price_date ? `收盘 ${stock.price_date.slice(5)}` : '收盘价'
+  }
+  if (stock.price_source === 'none') return '无行情'
+  return stock.is_stale ? '报价延迟' : ''
+}
+
+/** 价格下方那行小字。没话说时什么都不渲染，各表的价格格宽度才不会被撑开。 */
+export function PriceNote({ stock, className = 'mt-0.5 text-xs text-muted' }: { stock: PriceSourceLike; className?: string }) {
+  const note = priceSourceNote(stock)
+  return note ? <p className={className}>{note}</p> : null
+}
+
 export function Loading({ label }: { label?: string }) {
   return (
     <div className="panel animate-pulse p-8 text-sm text-muted">{label ?? '正在汇总行情与因子数据…'}</div>

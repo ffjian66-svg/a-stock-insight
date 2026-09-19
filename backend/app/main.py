@@ -7,7 +7,10 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.notify_routes import notify_router
+from app.api.quant_routes import quant_router
 from app.api.routes import router
+from app.api.strategy_routes import strategy_router
 from app.core.config import get_settings
 from app.db.session import SessionLocal, init_db
 from app.providers.base import ProviderError
@@ -44,6 +47,9 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 app.include_router(router)
+app.include_router(quant_router)
+app.include_router(strategy_router)
+app.include_router(notify_router)
 
 
 @app.exception_handler(ProviderError)

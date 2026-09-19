@@ -19,6 +19,17 @@ from app.providers.base import (
 from app.providers.rate_limiter import SlidingWindowRateLimiter
 
 
+def _parse_tushare_date(value: Any) -> date | None:
+    """TuShare 的 trade_date 是 `YYYYMMDD` 字符串（或 int），解析失败返回 None。"""
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
 class TushareProvider(MarketDataProvider):
     name = "tushare"
 
@@ -90,6 +101,35 @@ class TushareProvider(MarketDataProvider):
             )
             for r in frame.itertuples()
         ]
+
+    def stock_history(self, code: str, start: date, end: date) -> list[BarData]:
+        frame = self._call(
+            "daily",
+            ts_code=code,
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+        )
+        rows: list[BarData] = []
+        for r in frame.itertuples():
+            trade_date = _parse_tushare_date(r.trade_date)
+            if trade_date is None:
+                continue
+            rows.append(
+                BarData(
+                    code,
+                    trade_date,
+                    float(r.open),
+                    float(r.high),
+                    float(r.low),
+                    float(r.close),
+                    float(r.pre_close),
+                    float(r.pct_chg),
+                    float(r.vol),
+                    float(r.amount),
+                )
+            )
+        rows.sort(key=lambda bar: bar.trade_date)
+        return rows
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:

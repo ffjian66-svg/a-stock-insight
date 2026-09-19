@@ -36,6 +36,14 @@ describe('TopBoard', () => {
     expect(fifty).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('每行都能直接进该标的的买卖策略', async () => {
+    renderPage(<TopBoard />)
+    expect(await screen.findByRole('link', { name: '贵州茅台的买卖策略' })).toHaveAttribute(
+      'href',
+      '/strategy?code=600519.SH',
+    )
+  })
+
   it('榜单为空时显示空态', async () => {
     server.use(http.get('/api/v1/screener/top', () => HttpResponse.json([])))
     renderPage(<TopBoard />)

@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Change, EmptyState, Loading, SentimentChip } from '../components/Common'
+import { Change, EmptyState, Loading, PriceNote, SentimentChip } from '../components/Common'
 import { api } from '../lib/api'
 
 const tooltipStyle = {
@@ -29,7 +29,13 @@ function formatVolume(value: number) {
   return `${value}`
 }
 
-const ORIGIN_NAMES: Record<string, string> = { '/': '市场总览', '/screener': '智能选股' }
+// 「明日操作」的行一直在传 `state={{ from: '/tomorrow' }}`，但这里没有对应条目，返回按钮
+// 于是退化成泛化的「返回」——补上，让"从哪来回哪去"这条路走得通。
+const ORIGIN_NAMES: Record<string, string> = {
+  '/': '市场总览',
+  '/screener': '智能选股',
+  '/tomorrow': '明日操作',
+}
 
 export function StockDetailPage() {
   const { code = '600519.SH' } = useParams()
@@ -77,18 +83,32 @@ export function StockDetailPage() {
       <section className="panel p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-semibold">{s.name}</h1>
               <span className="chip border-border text-muted">{s.ts_code}</span>
+              <Link
+                to={`/quant?code=${s.ts_code}`}
+                state={{ from: location.pathname }}
+                className="chip border-primary/30 bg-primary/10 text-primary"
+              >
+                量化分析 →
+              </Link>
+              <Link
+                to={`/strategy?code=${s.ts_code}`}
+                state={{ from: location.pathname }}
+                className="chip border-primary/30 bg-primary/10 text-primary"
+              >
+                买卖策略 →
+              </Link>
             </div>
             <p className="mt-2 text-sm text-muted">
               {s.industry} · {s.market}
-              {s.is_stale ? ' · 报价延迟' : ''}
             </p>
           </div>
           <div className="text-right">
             <p className="metric text-3xl font-semibold">¥ {s.price?.toFixed(2) ?? '--'}</p>
             <Change value={s.pct_chg} />
+            <PriceNote stock={s} className="mt-1 text-xs text-muted" />
           </div>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">

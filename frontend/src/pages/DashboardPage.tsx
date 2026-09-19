@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Clock3, RefreshCw, Settings, ShieldCheck, Sparkles } from 'lucide-react'
+import { ChevronRight, Clock3, Crosshair, RefreshCw, Settings, ShieldCheck, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Change, EmptyState, ErrorBox, Loading, Notice, Score } from '../components/Common'
+import { Change, EmptyState, ErrorBox, Loading, Notice, PriceNote, Score } from '../components/Common'
 import { MiniChart } from '../components/MiniChart'
+import { NextDayPicks } from '../components/NextDayPicks'
+import { PositionsBrief } from '../components/PositionsBrief'
 import { TopBoard } from '../components/TopBoard'
 import { api } from '../lib/api'
 import { toast } from '../lib/toast'
@@ -56,24 +58,22 @@ export function DashboardPage() {
         ) : null}
       </div>
 
-      <section className="panel relative min-h-52 overflow-hidden p-6 lg:p-8">
+      <section className="panel relative overflow-hidden p-5 lg:p-6">
         <img
           src="/images/market-data-flow.png"
           alt="抽象市场数据流背景"
           className="absolute inset-0 size-full object-cover opacity-30"
         />
         <div className="absolute inset-0 bg-hero" />
-        <div className="relative max-w-2xl">
+        <div className="relative max-w-3xl">
           <p className="eyebrow">MARKET PULSE · 沪深京</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight lg:text-4xl">
-            从全市场噪声中，
-            <br />
-            <span className="text-primary">提取值得研究的信号</span>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight lg:text-3xl">
+            从全市场噪声中，<span className="text-primary">提取值得研究的信号</span>
           </h1>
-          <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
             融合趋势、估值、财务质量与新闻情绪，给出每一项评分背后的证据，而不是不可解释的结论。
           </p>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <button className="button-primary" onClick={() => sync.mutate()} disabled={sync.isPending}>
               <RefreshCw size={16} className={sync.isPending ? 'animate-spin' : ''} />
               {sync.isPending ? '同步中' : '刷新实时行情'}
@@ -107,6 +107,10 @@ export function DashboardPage() {
           </article>
         ))}
       </section>
+
+      <PositionsBrief />
+
+      <NextDayPicks />
 
       <section className="grid gap-6 xl:grid-cols-[1.65fr_1fr]">
         <div className="panel overflow-hidden">
@@ -144,21 +148,33 @@ export function DashboardPage() {
                         <p className="font-medium">{stock.name}</p>
                         <p className="mt-1 text-xs text-muted">
                           {stock.ts_code} · {stock.industry}
-                          {stock.is_stale ? ' · 数据延迟' : ''}
                         </p>
                       </td>
-                      <td className="metric px-4 py-4 font-semibold">¥ {stock.price?.toFixed(2) ?? '--'}</td>
+                      <td className="px-4 py-4">
+                        <p className="metric font-semibold">¥ {stock.price?.toFixed(2) ?? '--'}</p>
+                        <PriceNote stock={stock} />
+                      </td>
                       <td className="px-4 py-4"><Change value={stock.pct_chg} /></td>
                       <td className="px-4 py-4"><Score value={stock.total_score} /></td>
                       <td className="px-5 py-4">
-                        <Link
-                          aria-label={`查看${stock.name}`}
-                          to={`/stock/${stock.ts_code}`}
-                          state={{ from: '/' }}
-                          className="text-muted hover:text-primary"
-                        >
-                          <ChevronRight size={18} />
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link
+                            aria-label={`查看${stock.name}`}
+                            to={`/stock/${stock.ts_code}`}
+                            state={{ from: '/' }}
+                            className="text-muted hover:text-primary"
+                          >
+                            <ChevronRight size={18} />
+                          </Link>
+                          <Link
+                            aria-label={`${stock.name}的买卖策略`}
+                            title="买卖策略"
+                            to={`/strategy?code=${stock.ts_code}`}
+                            className="text-muted hover:text-primary"
+                          >
+                            <Crosshair size={17} />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -174,21 +190,21 @@ export function DashboardPage() {
               <ShieldCheck size={18} className="text-primary" />
               <h2 className="font-semibold">市场广度</h2>
             </div>
-            <div className="mt-5 grid grid-cols-3 gap-3">
-              <div className="rounded-xl bg-positive/10 p-4">
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-positive/10 p-3">
                 <p className="text-xs text-muted">上涨</p>
-                <p className="metric mt-2 text-2xl font-semibold text-positive">{overview.data?.breadth.rising ?? 0}</p>
+                <p className="metric mt-1.5 text-xl font-semibold text-positive">{overview.data?.breadth.rising ?? 0}</p>
               </div>
-              <div className="rounded-xl bg-negative/10 p-4">
+              <div className="rounded-xl bg-negative/10 p-3">
                 <p className="text-xs text-muted">下跌</p>
-                <p className="metric mt-2 text-2xl font-semibold text-negative">{overview.data?.breadth.falling ?? 0}</p>
+                <p className="metric mt-1.5 text-xl font-semibold text-negative">{overview.data?.breadth.falling ?? 0}</p>
               </div>
-              <div className="rounded-xl bg-elevated p-4">
+              <div className="rounded-xl bg-elevated p-3">
                 <p className="text-xs text-muted">平盘</p>
-                <p className="metric mt-2 text-2xl font-semibold">{overview.data?.breadth.flat ?? 0}</p>
+                <p className="metric mt-1.5 text-xl font-semibold">{overview.data?.breadth.flat ?? 0}</p>
               </div>
             </div>
-            <div className="mt-4 space-y-1 text-xs text-muted">
+            <div className="mt-3 space-y-1 text-xs text-muted">
               <p>
                 样本平均涨跌 <Change value={overview.data?.breadth.average_pct ?? 0} />
               </p>
@@ -202,7 +218,7 @@ export function DashboardPage() {
               <Settings size={18} className="text-primary" />
               <h2 className="font-semibold">系统状态</h2>
             </div>
-            <div className="mt-4 space-y-3 text-sm">
+            <div className="mt-3 space-y-2 text-sm">
               {[
                 ['行情数据源', statusData?.provider],
                 ['数据模式', statusData?.mock_mode ? '演示' : statusData?.data_mode === 'live' ? '实时' : '未配置'],

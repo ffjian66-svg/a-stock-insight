@@ -65,6 +65,10 @@ def _add_stock(session, ts_code: str) -> None:
             market="SZ",
         )
     )
+    # 必须先落库再插日线：daily_bars 的外键是真的（PRAGMA foreign_keys=ON 在生产与
+    # 测试库上都生效），而两个 mapper 之间没有 relationship，同一次 flush 里
+    # SQLAlchemy 不保证父表先写入。sync.py 也是同样的顺序（flush 股票 → 插日线）。
+    session.flush()
 
 
 def _add_bars(session, ts_code: str, n: int, base_close: float) -> None:

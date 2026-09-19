@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.models import (
     DailyBar,
+    FactorSnapshot,
     FundamentalSnapshot,
     LatestQuote,
     NewsArticle,
@@ -33,13 +34,16 @@ from app.providers.llm import LlmNewsAnalyzer
 from app.providers.mock import MockProvider
 from app.providers.tushare import TushareProvider
 from app.services.fundamentals import snapshot_metrics
-from app.services.indicators import calculate_indicators
 from app.services.news_analysis import NewsAnalyzer, analyze_article
-from app.services.scoring import score_stock
+from app.services.quant import factors as factors_meta
+from app.services.scoring import RULE_VERSION, ScoreResult, score_panel
 
 logger = logging.getLogger(__name__)
 DEFAULT_WATCHLIST = ["600519.SH", "300750.SZ", "601318.SH", "688981.SH"]
 _SYNC_LOCK = threading.Lock()
+
+# 因子最多回溯到 closes[-61]（60 日动量），多取无用
+_FACTOR_BARS = 61
 
 # 账号权限类失败（如 TuShare 积分档位不够某接口）后临时禁用该 job，避免调度器
 # 反复重试刷日志/SyncRun。窗口到期后会自动复位重试一次；手动触发不受影响。
@@ -191,8 +195,8 @@ def _allowed_codes(session: Session) -> set[str]:
 def _latest_missing_open_date(session: Session, before: date, lookback: int = 7) -> date | None:
     """最近一个已开市(交易日历)但尚无日线数据的交易日，用于补拉遗漏。
 
-    背景：收盘 job 若在行情数据未就绪时(如 15:20 上游尚未出全)拉到 0 行，
-    当天日线就会永久缺失。下一次 market 同步据此自动回补。
+    背景：收盘 job 若在当日行情数据尚未出全时拉到 0 行，当天日线就会缺失，
+    下一次 market 同步据此自动回补（收盘同步已定在 17:30 尽量规避此情形）。
     """
     window_start = before - timedelta(days=lookback)
     open_dates = list(
@@ -628,33 +632,54 @@ def refresh_quotes(session: Session, provider: MarketDataProvider | None = None)
 
 
 def recalculate_scores(session: Session) -> None:
+    """全市场重算综合评分（rule_version=v2 的横截面分位口径）。
+
+    必须分两遍：分位分只有在拿到全市场原始因子之后才能算，所以第一遍只取数、第二遍才写库。
+    第一遍刻意不保留 bar 对象，只留每只股票最后 `_FACTOR_BARS` 根收盘价——因子最多用到
+    `closes[-61]`，而全市场 5,561 只 × 250 根的 float 列表在 1.6G 小内存机上是纯浪费。
+    """
     cutoff = datetime.now() - timedelta(days=3)
-    for stock in session.scalars(select(Stock)).all():
+
+    closes: dict[str, list[float]] = {}
+    fundamentals: dict[str, dict[str, float | None]] = {}
+    sentiments: dict[str, float | None] = {}
+    last_dates: dict[str, date | None] = {}
+
+    for code in session.scalars(select(Stock.ts_code)).all():
         bars = session.scalars(
-            select(DailyBar).where(DailyBar.ts_code == stock.ts_code).order_by(DailyBar.trade_date)
+            select(DailyBar)
+            .where(DailyBar.ts_code == code)
+            .order_by(DailyBar.trade_date.desc())
+            .limit(_FACTOR_BARS)
         ).all()
-        indicators = calculate_indicators([{"close": bar.close} for bar in bars])
+        if not bars:
+            continue
+        closes[code] = [bar.close for bar in reversed(bars)]
+        last_dates[code] = bars[0].trade_date
         snapshots = list(
             session.scalars(
                 select(FundamentalSnapshot)
-                .where(FundamentalSnapshot.ts_code == stock.ts_code)
+                .where(FundamentalSnapshot.ts_code == code)
                 .order_by(FundamentalSnapshot.trade_date.desc())
             ).all()
         )
         # 估值取自最新交易日快照，质量指标取最新有值的一期财务快照
-        data = snapshot_metrics(snapshots)
-        sentiments = list(
+        fundamentals[code] = snapshot_metrics(snapshots)
+        values = list(
             session.scalars(
                 select(NewsArticle.sentiment).where(
-                    NewsArticle.ts_code == stock.ts_code,
+                    NewsArticle.ts_code == code,
                     NewsArticle.published_at >= cutoff,
                     NewsArticle.sentiment.is_not(None),
                 )
             )
         )
-        sentiment = sum(sentiments) / len(sentiments) if sentiments else None
-        result = score_stock(indicators, data, sentiment)
-        score = session.get(ScoreSnapshot, stock.ts_code) or ScoreSnapshot(ts_code=stock.ts_code)
+        sentiments[code] = sum(values) / len(values) if values else None
+
+    results = score_panel(closes, fundamentals, sentiments)
+    now = datetime.now()
+    for written, (code, result) in enumerate(results.items(), start=1):
+        score = session.get(ScoreSnapshot, code) or ScoreSnapshot(ts_code=code)
         score.total_score, score.technical_score, score.fundamental_score = (
             result.total,
             result.technical,
@@ -668,10 +693,42 @@ def recalculate_scores(session: Session) -> None:
         score.risk_level, score.explanations, score.calculated_at = (
             result.risk_level,
             result.explanations,
-            datetime.now(),
+            now,
         )
+        score.rule_version = RULE_VERSION
         session.add(score)
+
+        snapshot = session.get(FactorSnapshot, code) or FactorSnapshot(ts_code=code)
+        snapshot.trade_date = last_dates.get(code)
+        snapshot.factors = _factor_payload(result)
+        snapshot.composite = result.total
+        snapshot.coverage = result.coverage
+        snapshot.calculated_at = now
+        snapshot.rule_version = RULE_VERSION
+        session.add(snapshot)
+        if written % 1000 == 0:
+            session.flush()
     session.flush()
+
+
+def _factor_payload(result: ScoreResult) -> dict[str, object]:
+    """原始因子值 + 分位分，落 FactorSnapshot 供量化页直接读取（无需重算横截面）。
+
+    注意 `sentiment` 的 score 是绝对映射而非分位（见 quant/factors.py 说明），
+    这里照实存，`percentile != score` 的语义差异由前端文案负责解释。
+    """
+    payload: dict[str, object] = {}
+    detail = result.detail or {}
+    for group in factors_meta.GROUPS:
+        for item in factors_meta.group_factors(detail, group):
+            payload[str(item["factor"])] = {
+                "label": item.get("label"),
+                "raw": item.get("raw"),
+                "score": item.get("score"),
+                "weight": item.get("weight"),
+                "direction": item.get("direction"),
+            }
+    return payload
 
 
 def run_sync(session: Session, job_type: str) -> SyncRun:

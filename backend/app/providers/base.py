@@ -118,3 +118,11 @@ class MarketDataProvider(ABC):
     def index_history(self, code: str, days: int = 40) -> list[dict[str, object]]:
         """指数最近收盘序列，用于迷你走势；不支持时返回空列表。"""
         return []
+
+    def stock_history(self, code: str, start: date, end: date) -> list[BarData]:
+        """单只个股的区间日线，用于按需回补历史；不支持时返回空列表。
+
+        与 `daily(trade_date)`（全市场单日）互补：量化分析的指标/回测需要单股长历史，
+        逐日拉全市场既慢又浪费配额。
+        """
+        return []

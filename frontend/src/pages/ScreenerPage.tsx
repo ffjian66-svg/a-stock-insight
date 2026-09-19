@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, SlidersHorizontal } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Change, EmptyState, Loading, Score, TimingTag } from '../components/Common'
+import { Change, EmptyState, Loading, PriceNote, Score, TimingTag } from '../components/Common'
 import { api } from '../lib/api'
 import { toast } from '../lib/toast'
 
@@ -112,7 +112,10 @@ export function ScreenerPage() {
                     </Link>
                     <p className="ml-8 text-xs text-muted">{stock.ts_code} · {stock.industry}</p>
                   </td>
-                  <td className="metric">¥ {stock.price?.toFixed(2) ?? '--'}</td>
+                  <td>
+                    <p className="metric">¥ {stock.price?.toFixed(2) ?? '--'}</p>
+                    <PriceNote stock={stock} />
+                  </td>
                   <td><Change value={stock.pct_chg} /></td>
                   <td><Score value={stock.total_score} /></td>
                   <td className="metric">{stock.pe_ttm?.toFixed(1) ?? '--'}</td>
